@@ -166,7 +166,7 @@ async function getUserResources(email, companyName, auth) {
   return { spreadsheetId, folderId, voucherNumber };
 }
 
-// Keep server alive (optional self-ping for Render)
+// Keep server alive
 const RENDER_URL = process.env.RENDER_URL || "https://your-app-name.onrender.com";
 setInterval(() => {
   axios
@@ -177,7 +177,7 @@ setInterval(() => {
     .catch((error) => {
       console.error(`Self-ping failed at ${new Date().toISOString()}: ${error.message}`);
     });
-}, 14 * 60 * 1000); // Ping every 14 minutes to prevent spin-down
+}, 14 * 60 * 1000);
 
 app.get("/ping", (req, res) => {
   res.status(200).send({ message: "Server is active" });
@@ -226,10 +226,10 @@ app.get("/vouchers", async (req, res) => {
   }
 });
 
-// Edit voucher endpoint (replaced /edit-voucher/:id)
+// Edit voucher endpoint
 app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
   try {
-    const voucherNo = Number(req.params.voucherNo); // Ensure it's a number
+    const voucherNo = Number(req.params.voucherNo);
     const voucherData = req.body;
     const filterOption = voucherData.filter;
 
@@ -250,7 +250,6 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
     const sheetTitle = filterOption;
     const sheetURL = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 
-    // Generate PDF
     const pdfFileName = `${filterOption}_${voucherNo}.pdf`;
     const pdfFilePath = path.join(__dirname, pdfFileName);
     const doc = new PDFDocument({ margin: 30 });
@@ -297,18 +296,20 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
     doc.moveTo(120, 332).lineTo(550, 332).stroke();
     doc.fontSize(12).text(voucherData.amountRs, 130, 320);
 
-    const amountSectionY = 320;
-    const gap = 65;
-    const signatureSectionY = amountSectionY + gap;
+    // Updated Signature Section
+    const signatureSectionY = 400; // Adjusted Y position for better spacing
+    const signatureSpacing = 150; // Space between signature fields
 
-    const drawSignatureLine = (label, xPosition, yPosition) => {
-      doc.moveTo(xPosition, yPosition).lineTo(xPosition + 100, yPosition).stroke();
-      doc.fontSize(12).text(label, xPosition, yPosition + 5);
+    const drawSignatureLine = (label, value, xPosition) => {
+      const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100; // Dynamic line width
+      doc.fontSize(10).text(label, xPosition, signatureSectionY - 15); // Label above line
+      doc.moveTo(xPosition, signatureSectionY).lineTo(xPosition + lineWidth, signatureSectionY).stroke();
+      doc.fontSize(12).text(value || "", xPosition, signatureSectionY + 5); // Value below line
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy || "", 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy || "", 250, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature || "", 450, signatureSectionY);
+    drawSignatureLine("Checked By", voucherData.checkedBy || "", 50);
+    drawSignatureLine("Approved By", voucherData.approvedBy || "", 50 + signatureSpacing);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature || "", 50 + signatureSpacing * 2);
 
     doc.end();
 
@@ -317,7 +318,6 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
         const drive = google.drive({ version: "v3", auth });
         console.log(`Uploading updated PDF ${pdfFileName} to Drive folder ${folderId}`);
 
-        // Delete old PDF if it exists
         if (pdfFileId) {
           await drive.files.delete({ fileId: pdfFileId });
           console.log(`Deleted old PDF: ${pdfFileId}`);
@@ -538,18 +538,20 @@ app.post("/submit", upload.none(), async (req, res) => {
     doc.moveTo(120, 332).lineTo(550, 332).stroke();
     doc.fontSize(12).text(voucherData.amountRs, 130, 320);
 
-    const amountSectionY = 320;
-    const gap = 65;
-    const signatureSectionY = amountSectionY + gap;
+    // Updated Signature Section
+    const signatureSectionY = 400; // Adjusted Y position for better spacing
+    const signatureSpacing = 150; // Space between signature fields
 
-    const drawSignatureLine = (label, xPosition, yPosition) => {
-      doc.moveTo(xPosition, yPosition).lineTo(xPosition + 100, yPosition).stroke();
-      doc.fontSize(12).text(label, xPosition, yPosition + 5);
+    const drawSignatureLine = (label, value, xPosition) => {
+      const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100; // Dynamic line width
+      doc.fontSize(10).text(label, xPosition, signatureSectionY - 15); // Label above line
+      doc.moveTo(xPosition, signatureSectionY).lineTo(xPosition + lineWidth, signatureSectionY).stroke();
+      doc.fontSize(12).text(value || "", xPosition, signatureSectionY + 5); // Value below line
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy || "", 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy || "", 250, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature || "", 450, signatureSectionY);
+    drawSignatureLine("Checked By", voucherData.checkedBy || "", 50);
+    drawSignatureLine("Approved By", voucherData.approvedBy || "", 50 + signatureSpacing);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature || "", 50 + signatureSpacing * 2);
 
     doc.end();
 
