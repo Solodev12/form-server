@@ -278,7 +278,9 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      doc.image(filterLogo, 30, 30, { width: 100 });
+      // Increase size for Contentstack logo
+    const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
+      doc.image(filterLogo, 30, 30, { width: logoWidth });
     }
 
     doc.moveDown(3);
@@ -513,7 +515,9 @@ app.post("/submit", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      doc.image(filterLogo, 30, 30, { width: 100 });
+      // Increase size for Contentstack logo
+    const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
+      doc.image(filterLogo, 30, 30, { width: logoWidth });
     }
 
     doc.moveDown(3);
