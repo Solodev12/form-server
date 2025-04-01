@@ -44,7 +44,7 @@ const headerValues = [
 ];
 
 // MongoDB Connection
-const mongoURI = process.env.MONGO_URI || `mongodb://${process.env.MONGO_USERNAME}:${process.env.MONGO_PASSWORD}@localhost:27017/voucherDB?authSource=admin`;
+const mongoURI = process.env.MONGO_URI || `mongodb://${mongoUsername}:${mongoPassword}@localhost:27017/voucherDB?authSource=admin`;
 
 mongoose.connect(mongoURI)
   .then(() => console.log("Connected to MongoDB with authentication"))
@@ -166,18 +166,16 @@ async function getUserResources(email, companyName, auth) {
   return { spreadsheetId, folderId, voucherNumber };
 }
 
-// Keep server alive (optional self-ping for Render)
-const RENDER_URL = process.env.RENDER_URL || "https://your-app-name.onrender.com";
 setInterval(() => {
   axios
-    .get(`${RENDER_URL}/ping`)
+    .get(`http://localhost:${PORT}/ping`)
     .then((response) => {
-      console.log(`Self-ping successful at ${new Date().toISOString()}: ${response.data.message}`);
+      console.log("Pinged server to keep it warm.");
     })
     .catch((error) => {
-      console.error(`Self-ping failed at ${new Date().toISOString()}: ${error.message}`);
+      console.error("Error pinging the server:", error.message);
     });
-}, 14 * 60 * 1000); // Ping every 14 minutes to prevent spin-down
+}, 30000);
 
 app.get("/ping", (req, res) => {
   res.status(200).send({ message: "Server is active" });
@@ -226,10 +224,10 @@ app.get("/vouchers", async (req, res) => {
   }
 });
 
-// Edit voucher endpoint (replaced /edit-voucher/:id)
-app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
+// Edit voucher endpoint
+app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
   try {
-    const voucherNo = Number(req.params.voucherNo); // Ensure it's a number
+    const voucherId = req.params.id;
     const voucherData = req.body;
     const filterOption = voucherData.filter;
 
@@ -241,16 +239,16 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
     const userInfo = await google.oauth2({ version: "v2", auth }).userinfo.get();
     const email = userInfo.data.email;
 
-    const existingVoucher = await Voucher.findOne({ voucherNo, email });
+    const existingVoucher = await Voucher.findOne({ _id: voucherId, email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
     }
 
-    const { spreadsheetId, folderId, pdfFileId } = existingVoucher;
+    const { spreadsheetId, folderId } = existingVoucher;
+    const voucherNo = existingVoucher.voucherNo;
     const sheetTitle = filterOption;
     const sheetURL = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
 
-    // Generate PDF
     const pdfFileName = `${filterOption}_${voucherNo}.pdf`;
     const pdfFilePath = path.join(__dirname, pdfFileName);
     const doc = new PDFDocument({ margin: 30 });
@@ -306,9 +304,9 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
       doc.fontSize(12).text(label, xPosition, yPosition + 5);
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy || "", 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy || "", 250, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature || "", 450, signatureSectionY);
+    drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
+    drawSignatureLine("Approved By", voucherData.approvedBy, 250, signatureSectionY);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, 450, signatureSectionY);
 
     doc.end();
 
@@ -317,10 +315,9 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
         const drive = google.drive({ version: "v3", auth });
         console.log(`Uploading updated PDF ${pdfFileName} to Drive folder ${folderId}`);
 
-        // Delete old PDF if it exists
-        if (pdfFileId) {
-          await drive.files.delete({ fileId: pdfFileId });
-          console.log(`Deleted old PDF: ${pdfFileId}`);
+        if (existingVoucher.pdfFileId) {
+          await drive.files.delete({ fileId: existingVoucher.pdfFileId });
+          console.log(`Deleted old PDF: ${existingVoucher.pdfFileId}`);
         }
 
         const pdfFileMetadata = {
@@ -337,9 +334,9 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
           fields: "id, webViewLink",
         });
 
-        const newPdfFileId = pdfUploadResponse.data.id;
+        const pdfFileId = pdfUploadResponse.data.id;
         const pdfLink = pdfUploadResponse.data.webViewLink;
-        console.log(`PDF uploaded: ${newPdfFileId}, Link: ${pdfLink}`);
+        console.log(`PDF uploaded: ${pdfFileId}, Link: ${pdfLink}`);
 
         const sheets = google.sheets({ version: "v4", auth });
         const values = [
@@ -352,9 +349,9 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
             voucherData.account,
             voucherData.amount,
             voucherData.amountRs,
-            voucherData.checkedBy || "",
-            voucherData.approvedBy || "",
-            voucherData.receiverSignature || "",
+            voucherData.checkedBy,
+            voucherData.approvedBy,
+            voucherData.receiverSignature,
             pdfLink,
           ],
         ];
@@ -382,9 +379,8 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
         console.log(`Data updated in sheet ${spreadsheetId}`);
 
         await Voucher.updateOne(
-          { voucherNo, email },
+          { _id: voucherId, email },
           {
-            company: filterOption,
             date: voucherData.date,
             payTo: voucherData.payTo,
             accountHead: voucherData.accountHead,
@@ -395,7 +391,7 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
             approvedBy: voucherData.approvedBy,
             receiverSignature: voucherData.receiverSignature,
             pdfLink,
-            pdfFileId: newPdfFileId,
+            pdfFileId,
           }
         );
         console.log(`Voucher updated in MongoDB: ${voucherNo}`);
@@ -404,20 +400,16 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
 
         res.status(200).send({
           message: "Voucher updated successfully!",
-          sheetURL,
-          pdfFileId: newPdfFileId,
+          sheetURL: sheetURL,
+          pdfFileId: pdfFileId,
         });
       } catch (error) {
         console.error("Error updating voucher:", error.message);
         res.status(500).send({ error: "Failed to update voucher: " + error.message });
-      } finally {
-        if (fs.existsSync(pdfFilePath)) {
-          fs.unlinkSync(pdfFilePath);
-        }
       }
     });
   } catch (error) {
-    console.error("Error in /vouchers/:voucherNo endpoint:", error.message);
+    console.error("Error in /edit-voucher endpoint:", error.message);
     res.status(500).send({ error: "Failed to edit voucher: " + error.message });
   }
 });
@@ -425,13 +417,13 @@ app.put("/vouchers/:voucherNo", upload.none(), async (req, res) => {
 // Delete voucher endpoint
 app.delete("/vouchers/:voucherNo", async (req, res) => {
   try {
-    const voucherNo = Number(req.params.voucherNo);
+    const voucherNo = req.params.voucherNo;
 
     const auth = authenticateGoogle(req);
     const userInfo = await google.oauth2({ version: "v2", auth }).userinfo.get();
     const email = userInfo.data.email;
 
-    const existingVoucher = await Voucher.findOne({ voucherNo, email });
+    const existingVoucher = await Voucher.findOne({ voucherNo: Number(voucherNo), email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
     }
@@ -461,7 +453,7 @@ app.delete("/vouchers/:voucherNo", async (req, res) => {
       console.log(`Deleted row from sheet ${spreadsheetId} at ${rowRange}`);
     }
 
-    await Voucher.deleteOne({ voucherNo, email });
+    await Voucher.deleteOne({ voucherNo: Number(voucherNo), email });
     console.log(`Deleted voucher from MongoDB: ${voucherNo}`);
 
     res.status(200).send({ message: "Voucher deleted successfully!" });
@@ -547,9 +539,9 @@ app.post("/submit", upload.none(), async (req, res) => {
       doc.fontSize(12).text(label, xPosition, yPosition + 5);
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy || "", 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy || "", 250, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature || "", 450, signatureSectionY);
+    drawSignatureLine("Checked By", 50, signatureSectionY);
+    drawSignatureLine("Approved By", 250, signatureSectionY);
+    drawSignatureLine("Receiver Signature", 450, signatureSectionY);
 
     doc.end();
 
@@ -586,9 +578,9 @@ app.post("/submit", upload.none(), async (req, res) => {
             voucherData.account,
             voucherData.amount,
             voucherData.amountRs,
-            voucherData.checkedBy || "",
-            voucherData.approvedBy || "",
-            voucherData.receiverSignature || "",
+            voucherData.checkedBy,
+            voucherData.approvedBy,
+            voucherData.receiverSignature,
             pdfLink,
           ],
         ];
@@ -629,8 +621,8 @@ app.post("/submit", upload.none(), async (req, res) => {
 
         res.status(200).send({
           message: "Data submitted successfully and PDF uploaded!",
-          sheetURL,
-          pdfFileId,
+          sheetURL: sheetURL,
+          pdfFileId: pdfFileId,
         });
       } catch (error) {
         console.error("Error uploading PDF or appending to sheet:", error.message);
