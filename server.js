@@ -44,6 +44,8 @@ const headerValues = [
 ];
 
 // MongoDB Connection
+const mongoUsername = process.env.MONGO_USERNAME || "defaultUsername";
+const mongoPassword = process.env.MONGO_PASSWORD || "defaultPassword";
 const mongoURI = process.env.MONGO_URI || `mongodb://${mongoUsername}:${mongoPassword}@localhost:27017/voucherDB?authSource=admin`;
 
 mongoose.connect(mongoURI)
@@ -145,10 +147,11 @@ async function createDriveFolder(companyName, auth) {
   }
 }
 
-// Get or create resources per user and generate unique voucher number
+// Get or create resources per user and generate unique voucher number per company
 async function getUserResources(email, companyName, auth) {
   let spreadsheetId, folderId;
 
+  // Check if resources exist for this user and company
   const existingVoucher = await Voucher.findOne({ email, company: companyName });
   if (existingVoucher) {
     spreadsheetId = existingVoucher.spreadsheetId;
@@ -158,14 +161,17 @@ async function getUserResources(email, companyName, auth) {
     folderId = await createDriveFolder(companyName, auth);
   }
 
+  // Generate voucher number specific to this email and company
   const highestVoucher = await Voucher.findOne({ email, company: companyName })
     .sort({ voucherNo: -1 })
     .select("voucherNo");
   const voucherNumber = highestVoucher ? highestVoucher.voucherNo + 1 : 1;
 
+  console.log(`Generated voucherNo ${voucherNumber} for ${email} and ${companyName}`);
   return { spreadsheetId, folderId, voucherNumber };
 }
 
+// Keep server alive
 setInterval(() => {
   axios
     .get(`http://localhost:${PORT}/ping`)
@@ -304,9 +310,9 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
       doc.fontSize(12).text(label, xPosition, yPosition + 5);
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy, 250, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, 450, signatureSectionY);
+    drawSignatureLine(voucherData.checkedBy || "Checked By", 50, signatureSectionY);
+    drawSignatureLine(voucherData.approvedBy || "Approved By", 250, signatureSectionY);
+    drawSignatureLine(voucherData.receiverSignature || "Receiver Signature", 450, signatureSectionY);
 
     doc.end();
 
@@ -400,8 +406,8 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
         res.status(200).send({
           message: "Voucher updated successfully!",
-          sheetURL: sheetURL,
-          pdfFileId: pdfFileId,
+          sheetURL,
+          pdfFileId,
         });
       } catch (error) {
         console.error("Error updating voucher:", error.message);
@@ -417,13 +423,13 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 // Delete voucher endpoint
 app.delete("/vouchers/:voucherNo", async (req, res) => {
   try {
-    const voucherNo = req.params.voucherNo;
+    const voucherNo = Number(req.params.voucherNo);
 
     const auth = authenticateGoogle(req);
     const userInfo = await google.oauth2({ version: "v2", auth }).userinfo.get();
     const email = userInfo.data.email;
 
-    const existingVoucher = await Voucher.findOne({ voucherNo: Number(voucherNo), email });
+    const existingVoucher = await Voucher.findOne({ voucherNo, email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
     }
@@ -453,7 +459,7 @@ app.delete("/vouchers/:voucherNo", async (req, res) => {
       console.log(`Deleted row from sheet ${spreadsheetId} at ${rowRange}`);
     }
 
-    await Voucher.deleteOne({ voucherNo: Number(voucherNo), email });
+    await Voucher.deleteOne({ voucherNo, email });
     console.log(`Deleted voucher from MongoDB: ${voucherNo}`);
 
     res.status(200).send({ message: "Voucher deleted successfully!" });
@@ -539,9 +545,9 @@ app.post("/submit", upload.none(), async (req, res) => {
       doc.fontSize(12).text(label, xPosition, yPosition + 5);
     };
 
-    drawSignatureLine("Checked By", 50, signatureSectionY);
-    drawSignatureLine("Approved By", 250, signatureSectionY);
-    drawSignatureLine("Receiver Signature", 450, signatureSectionY);
+    drawSignatureLine(voucherData.checkedBy || "Checked By", 50, signatureSectionY);
+    drawSignatureLine(voucherData.approvedBy || "Approved By", 250, signatureSectionY);
+    drawSignatureLine(voucherData.receiverSignature || "Receiver Signature", 450, signatureSectionY);
 
     doc.end();
 
@@ -621,8 +627,8 @@ app.post("/submit", upload.none(), async (req, res) => {
 
         res.status(200).send({
           message: "Data submitted successfully and PDF uploaded!",
-          sheetURL: sheetURL,
-          pdfFileId: pdfFileId,
+          sheetURL,
+          pdfFileId,
         });
       } catch (error) {
         console.error("Error uploading PDF or appending to sheet:", error.message);
