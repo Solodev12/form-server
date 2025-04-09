@@ -35,6 +35,7 @@ const headerValues = [
   "Pay to",
   "Account Head",
   "Towards",
+  "Transaction Type", // New column
   "The Sum",
   "Amount Rs.",
   "Checked By",
@@ -61,6 +62,7 @@ const voucherSchema = new mongoose.Schema({
   payTo: String,
   accountHead: String,
   account: String,
+  transactionType: { type: String, required: true, enum: ["UPI", "Cash", "Account"] }, // New field
   amount: String,
   amountRs: String,
   checkedBy: String,
@@ -355,6 +357,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
             voucherData.payTo,
             voucherData.accountHead,
             voucherData.account,
+            voucherData.transactionType, // Add Transaction Type to sheet
             voucherData.amount,
             voucherData.amountRs,
             voucherData.checkedBy,
@@ -393,6 +396,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
             payTo: voucherData.payTo,
             accountHead: voucherData.accountHead,
             account: voucherData.account,
+            transactionType: voucherData.transactionType, // Update transactionType
             amount: voucherData.amount,
             amountRs: voucherData.amountRs,
             checkedBy: voucherData.checkedBy,
@@ -531,6 +535,7 @@ app.post("/submit", upload.none(), async (req, res) => {
     drawLineAndText("Pay to:", voucherData.payTo, 160);
     drawLineAndText("Account Head:", voucherData.accountHead, 200);
     drawLineAndText("Towards:", voucherData.account, 240);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 280); // Add Transaction Type to PDF
 
     doc.fontSize(12).text("Amount Rs.", 30, 280);
     doc.moveTo(120, 292).lineTo(550, 292).stroke();
@@ -543,6 +548,7 @@ app.post("/submit", upload.none(), async (req, res) => {
     const amountSectionY = 320;
     const gap = 65;
     const signatureSectionY = amountSectionY + gap;
+    
 
     const drawSignatureLine = (label, xPosition, yPosition) => {
       doc.moveTo(xPosition, yPosition).lineTo(xPosition + 100, yPosition).stroke();
@@ -586,6 +592,7 @@ app.post("/submit", upload.none(), async (req, res) => {
             voucherData.payTo,
             voucherData.accountHead,
             voucherData.account,
+            voucherData.transactionType, // Add Transaction Type to sheet
             voucherData.amount,
             voucherData.amountRs,
             voucherData.checkedBy,
@@ -614,6 +621,7 @@ app.post("/submit", upload.none(), async (req, res) => {
           payTo: voucherData.payTo,
           accountHead: voucherData.accountHead,
           account: voucherData.account,
+          transactionType: voucherData.transactionType, // Update transactionType
           amount: voucherData.amount,
           amountRs: voucherData.amountRs,
           checkedBy: voucherData.checkedBy,
