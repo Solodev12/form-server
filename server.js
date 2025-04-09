@@ -35,7 +35,7 @@ const headerValues = [
   "Pay to",
   "Account Head",
   "Towards",
-  "Transaction Type", // New column
+  "Transaction Type",
   "The Sum",
   "Amount Rs.",
   "Checked By",
@@ -62,7 +62,7 @@ const voucherSchema = new mongoose.Schema({
   payTo: String,
   accountHead: String,
   account: String,
-  transactionType: { type: String, required: true, enum: ["UPI", "Cash", "Account"] }, // New field
+  transactionType: { type: String, required: true, enum: ["UPI", "Cash", "Account"] },
   amount: String,
   amountRs: String,
   checkedBy: String,
@@ -92,20 +92,8 @@ async function createSpreadsheet(companyName, auth) {
     console.log(`Creating new spreadsheet for ${companyName}`);
     const spreadsheet = await sheets.spreadsheets.create({
       resource: {
-        properties: {
-          title: `${companyName} Vouchers`,
-        },
-        sheets: [
-          {
-            properties: {
-              title: companyName,
-              gridProperties: {
-                rowCount: 1000,
-                columnCount: 14,
-              },
-            },
-          },
-        ],
+        properties: { title: `${companyName} Vouchers` },
+        sheets: [{ properties: { title: companyName, gridProperties: { rowCount: 1000, columnCount: 14 } } }],
       },
       fields: "spreadsheetId",
     });
@@ -116,9 +104,7 @@ async function createSpreadsheet(companyName, auth) {
       spreadsheetId,
       range: `${companyName}!A1:O1`,
       valueInputOption: "RAW",
-      requestBody: {
-        values: [headerValues],
-      },
+      requestBody: { values: [headerValues] },
     });
     console.log(`Headers set for ${spreadsheetId}`);
     return spreadsheetId;
@@ -134,10 +120,7 @@ async function createDriveFolder(companyName, auth) {
   try {
     console.log(`Creating new Drive folder for ${companyName}`);
     const folder = await drive.files.create({
-      resource: {
-        name: `${companyName} Vouchers`,
-        mimeType: "application/vnd.google-apps.folder",
-      },
+      resource: { name: `${companyName} Vouchers`, mimeType: "application/vnd.google-apps.folder" },
       fields: "id",
     });
     const folderId = folder.data.id;
@@ -153,7 +136,6 @@ async function createDriveFolder(companyName, auth) {
 async function getUserResources(email, companyName, auth) {
   let spreadsheetId, folderId;
 
-  // Check if resources exist for this user and company
   const existingVoucher = await Voucher.findOne({ email, company: companyName });
   if (existingVoucher) {
     spreadsheetId = existingVoucher.spreadsheetId;
@@ -163,7 +145,6 @@ async function getUserResources(email, companyName, auth) {
     folderId = await createDriveFolder(companyName, auth);
   }
 
-  // Generate voucher number specific to this email and company
   const highestVoucher = await Voucher.findOne({ email, company: companyName })
     .sort({ voucherNo: -1 })
     .select("voucherNo");
@@ -177,12 +158,8 @@ async function getUserResources(email, companyName, auth) {
 setInterval(() => {
   axios
     .get(`http://localhost:${PORT}/ping`)
-    .then((response) => {
-      console.log("Pinged server to keep it warm.");
-    })
-    .catch((error) => {
-      console.error("Error pinging the server:", error.message);
-    });
+    .then((response) => console.log("Pinged server to keep it warm."))
+    .catch((error) => console.error("Error pinging the server:", error.message));
 }, 30000);
 
 app.get("/ping", (req, res) => {
@@ -265,13 +242,14 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     const underlineYPosition = 35;
 
+    // Header section
     doc.fontSize(12).text("Date:", 400, 20);
     doc.fontSize(12).text(voucherData.date, 440, 20);
     doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
 
     doc.fontSize(12).text("Voucher No:", 400, 40);
     doc.fontSize(12).text(voucherNo, 470, 40);
-    doc.moveTo(440, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
+    doc.moveTo(470, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
 
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
@@ -280,43 +258,41 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      // Increase size for Contentstack logo
-    const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
+      const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
       doc.image(filterLogo, 30, 30, { width: logoWidth });
     }
 
     doc.moveDown(3);
 
+    // Main content with adjusted spacing
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(12).text(label, 30, yPosition);
       doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
-      doc.fontSize(12).text(value, 130, yPosition);
+      doc.fontSize(12).text(value || "", 130, yPosition);
     };
 
-    drawLineAndText("Pay to:", voucherData.payTo, 160);
-    drawLineAndText("Account Head:", voucherData.accountHead, 200);
-    drawLineAndText("Towards:", voucherData.account, 240);
+    drawLineAndText("Pay to:", voucherData.payTo, 120);
+    drawLineAndText("Account Head:", voucherData.accountHead, 160);
+    drawLineAndText("Towards:", voucherData.account, 200);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 240);
+    drawLineAndText("Amount Rs.", voucherData.amount, 280);
+    drawLineAndText("The Sum.", voucherData.amountRs, 320);
 
-    doc.fontSize(12).text("Amount Rs.", 30, 280);
-    doc.moveTo(120, 292).lineTo(550, 292).stroke();
-    doc.fontSize(12).text(voucherData.amount, 130, 280);
-
-    doc.fontSize(12).text("The Sum.", 30, 320);
-    doc.moveTo(120, 332).lineTo(550, 332).stroke();
-    doc.fontSize(12).text(voucherData.amountRs, 130, 320);
-
-    const amountSectionY = 320;
-    const gap = 65;
-    const signatureSectionY = amountSectionY + gap;
+    // Signature section with adjusted position
+    const signatureSectionY = 400; // Moved down to avoid overlap
+    const signatureSpacing = 150;
 
     const drawSignatureLine = (label, xPosition, yPosition) => {
-      doc.moveTo(xPosition, yPosition).lineTo(xPosition + 100, yPosition).stroke();
-      doc.fontSize(12).text(label, xPosition, yPosition + 5);
+      const textWidth = label ? doc.widthOfString(label) : 100;
+      const lineWidth = Math.max(textWidth, 100);
+      doc.fontSize(10).text(label ? " " : label, xPosition, yPosition - 15); // Label above line
+      doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
+      doc.fontSize(12).text(label || "", xPosition, yPosition + 5);
     };
 
     drawSignatureLine(voucherData.checkedBy || "Checked By", 50, signatureSectionY);
-    drawSignatureLine(voucherData.approvedBy || "Approved By", 250, signatureSectionY);
-    drawSignatureLine(voucherData.receiverSignature || "Receiver Signature", 450, signatureSectionY);
+    drawSignatureLine(voucherData.approvedBy || "Approved By", 50 + signatureSpacing, signatureSectionY);
+    drawSignatureLine(voucherData.receiverSignature || "Receiver Signature", 50 + signatureSpacing * 2, signatureSectionY);
 
     doc.end();
 
@@ -330,14 +306,8 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
           console.log(`Deleted old PDF: ${existingVoucher.pdfFileId}`);
         }
 
-        const pdfFileMetadata = {
-          name: pdfFileName,
-          parents: [folderId],
-        };
-        const pdfMedia = {
-          mimeType: "application/pdf",
-          body: fs.createReadStream(pdfFilePath),
-        };
+        const pdfFileMetadata = { name: pdfFileName, parents: [folderId] };
+        const pdfMedia = { mimeType: "application/pdf", body: fs.createReadStream(pdfFilePath) };
         const pdfUploadResponse = await drive.files.create({
           resource: pdfFileMetadata,
           media: pdfMedia,
@@ -357,7 +327,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
             voucherData.payTo,
             voucherData.accountHead,
             voucherData.account,
-            voucherData.transactionType, // Add Transaction Type to sheet
+            voucherData.transactionType,
             voucherData.amount,
             voucherData.amountRs,
             voucherData.checkedBy,
@@ -383,9 +353,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
           spreadsheetId,
           range: rowRange,
           valueInputOption: "RAW",
-          requestBody: {
-            values: [values[0]],
-          },
+          requestBody: { values: [values[0]] },
         });
         console.log(`Data updated in sheet ${spreadsheetId}`);
 
@@ -396,7 +364,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
             payTo: voucherData.payTo,
             accountHead: voucherData.accountHead,
             account: voucherData.account,
-            transactionType: voucherData.transactionType, // Update transactionType
+            transactionType: voucherData.transactionType,
             amount: voucherData.amount,
             amountRs: voucherData.amountRs,
             checkedBy: voucherData.checkedBy,
@@ -504,13 +472,14 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     const underlineYPosition = 35;
 
+    // Header section
     doc.fontSize(12).text("Date:", 400, 20);
     doc.fontSize(12).text(voucherData.date, 440, 20);
     doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
 
     doc.fontSize(12).text("Voucher No:", 400, 40);
     doc.fontSize(12).text(voucherNo, 470, 40);
-    doc.moveTo(440, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
+    doc.moveTo(470, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
 
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
@@ -519,45 +488,41 @@ app.post("/submit", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      // Increase size for Contentstack logo
-    const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
+      const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
       doc.image(filterLogo, 30, 30, { width: logoWidth });
     }
 
     doc.moveDown(3);
 
+    // Main content with adjusted spacing
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(12).text(label, 30, yPosition);
       doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
-      doc.fontSize(12).text(value, 130, yPosition);
+      doc.fontSize(12).text(value || "", 130, yPosition);
     };
 
-    drawLineAndText("Pay to:", voucherData.payTo, 160);
-    drawLineAndText("Account Head:", voucherData.accountHead, 200);
-    drawLineAndText("Towards:", voucherData.account, 240);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 280); // Add Transaction Type to PDF
+    drawLineAndText("Pay to:", voucherData.payTo, 120);
+    drawLineAndText("Account Head:", voucherData.accountHead, 160);
+    drawLineAndText("Towards:", voucherData.account, 200);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 240);
+    drawLineAndText("Amount Rs.", voucherData.amount, 280);
+    drawLineAndText("The Sum.", voucherData.amountRs, 320);
 
-    doc.fontSize(12).text("Amount Rs.", 30, 280);
-    doc.moveTo(120, 292).lineTo(550, 292).stroke();
-    doc.fontSize(12).text(voucherData.amount, 130, 280);
-
-    doc.fontSize(12).text("The Sum.", 30, 320);
-    doc.moveTo(120, 332).lineTo(550, 332).stroke();
-    doc.fontSize(12).text(voucherData.amountRs, 130, 320);
-
-    const amountSectionY = 320;
-    const gap = 65;
-    const signatureSectionY = amountSectionY + gap;
-    
+    // Signature section with adjusted position
+    const signatureSectionY = 400; // Moved down to avoid overlap
+    const signatureSpacing = 150;
 
     const drawSignatureLine = (label, xPosition, yPosition) => {
-      doc.moveTo(xPosition, yPosition).lineTo(xPosition + 100, yPosition).stroke();
-      doc.fontSize(12).text(label, xPosition, yPosition + 5);
+      const textWidth = label ? doc.widthOfString(label) : 100;
+      const lineWidth = Math.max(textWidth, 100);
+      doc.fontSize(10).text(label ? " " : label, xPosition, yPosition - 15); // Label above line
+      doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
+      doc.fontSize(12).text(label || "", xPosition, yPosition + 5);
     };
 
     drawSignatureLine(voucherData.checkedBy || "Checked By", 50, signatureSectionY);
-    drawSignatureLine(voucherData.approvedBy || "Approved By", 250, signatureSectionY);
-    drawSignatureLine(voucherData.receiverSignature || "Receiver Signature", 450, signatureSectionY);
+    drawSignatureLine(voucherData.approvedBy || "Approved By", 50 + signatureSpacing, signatureSectionY);
+    drawSignatureLine(voucherData.receiverSignature || "Receiver Signature", 50 + signatureSpacing * 2, signatureSectionY);
 
     doc.end();
 
@@ -565,14 +530,8 @@ app.post("/submit", upload.none(), async (req, res) => {
       try {
         const drive = google.drive({ version: "v3", auth });
         console.log(`Uploading PDF ${pdfFileName} to Drive folder ${folderId}`);
-        const pdfFileMetadata = {
-          name: pdfFileName,
-          parents: [folderId],
-        };
-        const pdfMedia = {
-          mimeType: "application/pdf",
-          body: fs.createReadStream(pdfFilePath),
-        };
+        const pdfFileMetadata = { name: pdfFileName, parents: [folderId] };
+        const pdfMedia = { mimeType: "application/pdf", body: fs.createReadStream(pdfFilePath) };
         const pdfUploadResponse = await drive.files.create({
           resource: pdfFileMetadata,
           media: pdfMedia,
@@ -592,7 +551,7 @@ app.post("/submit", upload.none(), async (req, res) => {
             voucherData.payTo,
             voucherData.accountHead,
             voucherData.account,
-            voucherData.transactionType, // Add Transaction Type to sheet
+            voucherData.transactionType,
             voucherData.amount,
             voucherData.amountRs,
             voucherData.checkedBy,
@@ -607,9 +566,7 @@ app.post("/submit", upload.none(), async (req, res) => {
           spreadsheetId,
           range: `${sheetTitle}!A:O`,
           valueInputOption: "RAW",
-          requestBody: {
-            values,
-          },
+          requestBody: { values },
         });
         console.log(`Data appended to ${spreadsheetId}`);
 
@@ -621,7 +578,7 @@ app.post("/submit", upload.none(), async (req, res) => {
           payTo: voucherData.payTo,
           accountHead: voucherData.accountHead,
           account: voucherData.account,
-          transactionType: voucherData.transactionType, // Update transactionType
+          transactionType: voucherData.transactionType,
           amount: voucherData.amount,
           amountRs: voucherData.amountRs,
           checkedBy: voucherData.checkedBy,
