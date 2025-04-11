@@ -9,8 +9,8 @@ const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
 const axios = require("axios");
-const session = require("express-session"); // Add session middleware
-const cookieParser = require("cookie-parser"); // Add cookie parser
+const session = require("express-session");
+const cookieParser = require("cookie-parser");
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -19,25 +19,25 @@ app.use(
     origin: "https://voucher-form-frontend-nu.vercel.app",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true, // Allow cookies to be sent with requests
+    credentials: true,
     optionsSuccessStatus: 200,
   })
 );
 
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
-app.use(cookieParser()); // Parse cookies
+app.use(cookieParser());
 
 // Session configuration
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "your-secret-key", // Use an env variable in production
+    secret: process.env.SESSION_SECRET || "your-secret-key",
     resave: false,
     saveUninitialized: false,
     cookie: {
-      secure: process.env.NODE_ENV === "production", // Secure in production (HTTPS)
-      httpOnly: true, // Prevent client-side access to cookie
-      maxAge: 24 * 60 * 60 * 1000, // 24 hours expiration
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 24 * 60 * 60 * 1000,
     },
   })
 );
@@ -103,7 +103,6 @@ const Voucher = mongoose.model("Voucher", voucherSchema);
 // Middleware to authenticate Google token or use session
 const authenticateGoogle = async (req) => {
   if (req.session.email) {
-    // User is already authenticated via session
     return { email: req.session.email };
   }
 
@@ -114,9 +113,8 @@ const authenticateGoogle = async (req) => {
   const userInfo = await google.oauth2({ version: "v2", auth }).userinfo.get();
   const email = userInfo.data.email;
 
-  // Store email in session after successful authentication
   req.session.email = email;
-  return { email, auth }; // Return auth for endpoints needing Google API access
+  return { email, auth };
 };
 
 // Function to create a new spreadsheet
@@ -210,6 +208,17 @@ app.get("/ping", (req, res) => {
   res.status(200).send({ message: "Server is active" });
 });
 
+// Check session endpoint
+app.get("/check-session", async (req, res) => {
+  try {
+    const { email } = await authenticateGoogle(req);
+    res.status(200).send({ email, message: "Session is active" });
+  } catch (error) {
+    console.error("Session check failed:", error.message);
+    res.status(401).send({ error: "No active session" });
+  }
+});
+
 app.get("/get-voucher-no", async (req, res) => {
   const filter = req.query.filter;
   if (!filter || !["Contentstack", "Surfboard", "RawEngineering"].includes(filter)) {
@@ -278,7 +287,6 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     const underlineYPosition = 35;
 
-    // Header section
     doc.fontSize(12).text("Date:", 400, 20);
     doc.fontSize(12).text(voucherData.date, 440, 20);
     doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
@@ -300,7 +308,6 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     doc.moveDown(3);
 
-    // Main content with adjusted spacing
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(12).text(label, 30, yPosition);
       doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
@@ -314,15 +321,14 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     drawLineAndText("Amount Rs.", voucherData.amount, 280);
     drawLineAndText("The Sum.", voucherData.amountRs, 320);
 
-    // Signature section with fixed labels
     const signatureSectionY = 400;
     const signatureSpacing = 150;
 
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
       const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100;
-      doc.fontSize(10).text(label, xPosition, yPosition - 15); // Label above the line
+      doc.fontSize(10).text(label, xPosition, yPosition - 15);
       doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
-      doc.fontSize(12).text(value || "", xPosition, yPosition + 5); // Value below the line
+      doc.fontSize(12).text(value || "", xPosition, yPosition + 5);
     };
 
     drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
@@ -501,7 +507,6 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     const underlineYPosition = 35;
 
-    // Header section
     doc.fontSize(12).text("Date:", 400, 20);
     doc.fontSize(12).text(voucherData.date, 440, 20);
     doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
@@ -523,7 +528,6 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     doc.moveDown(3);
 
-    // Main content with adjusted spacing
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(12).text(label, 30, yPosition);
       doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
@@ -537,15 +541,14 @@ app.post("/submit", upload.none(), async (req, res) => {
     drawLineAndText("Amount Rs.", voucherData.amount, 280);
     drawLineAndText("The Sum.", voucherData.amountRs, 320);
 
-    // Signature section with fixed labels
     const signatureSectionY = 400;
     const signatureSpacing = 150;
 
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
       const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100;
-      doc.fontSize(10).text(label, xPosition, yPosition - 15); // Label above the line
+      doc.fontSize(10).text(label, xPosition, yPosition - 15);
       doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
-      doc.fontSize(12).text(value || "", xPosition, yPosition + 5); // Value below the line
+      doc.fontSize(12).text(value || "", xPosition, yPosition + 5);
     };
 
     drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
@@ -650,7 +653,7 @@ app.post("/logout", (req, res) => {
       console.error("Error destroying session:", err);
       return res.status(500).send({ error: "Failed to log out" });
     }
-    res.clearCookie("connect.sid"); // Clear the session cookie
+    res.clearCookie("connect.sid");
     res.status(200).send({ message: "Logged out successfully" });
   });
 });
