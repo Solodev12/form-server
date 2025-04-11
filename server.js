@@ -9,6 +9,8 @@ const fs = require("fs");
 const path = require("path");
 const cors = require("cors");
 const axios = require("axios");
+const session = require("express-session"); // Add session middleware
+const cookieParser = require("cookie-parser"); // Add cookie parser
 const app = express();
 const PORT = process.env.PORT || 3001;
 
@@ -17,13 +19,28 @@ app.use(
     origin: "https://voucher-form-frontend-nu.vercel.app",
     methods: ["GET", "POST", "PUT", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
-    credentials: true,
+    credentials: true, // Allow cookies to be sent with requests
     optionsSuccessStatus: 200,
   })
 );
 
 app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
+app.use(cookieParser()); // Parse cookies
+
+// Session configuration
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "your-secret-key", // Use an env variable in production
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production", // Secure in production (HTTPS)
+      httpOnly: true, // Prevent client-side access to cookie
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours expiration
+    },
+  })
+);
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
@@ -83,14 +100,23 @@ const voucherSchema = new mongoose.Schema({
 
 const Voucher = mongoose.model("Voucher", voucherSchema);
 
-// Middleware to authenticate Google token
-const authenticateGoogle = (req) => {
-  if (!req.headers.authorization)
-    throw new Error("No authorization token provided");
+// Middleware to authenticate Google token or use session
+const authenticateGoogle = async (req) => {
+  if (req.session.email) {
+    // User is already authenticated via session
+    return { email: req.session.email };
+  }
+
+  if (!req.headers.authorization) throw new Error("No authorization token provided");
   const token = req.headers.authorization.split("Bearer ")[1];
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: token });
-  return auth;
+  const userInfo = await google.oauth2({ version: "v2", auth }).userinfo.get();
+  const email = userInfo.data.email;
+
+  // Store email in session after successful authentication
+  req.session.email = email;
+  return { email, auth }; // Return auth for endpoints needing Google API access
 };
 
 // Function to create a new spreadsheet
@@ -124,10 +150,7 @@ async function createSpreadsheet(companyName, auth) {
     console.log(`Headers set for ${spreadsheetId}`);
     return spreadsheetId;
   } catch (error) {
-    console.error(
-      `Error creating spreadsheet for ${companyName}:`,
-      error.message
-    );
+    console.error(`Error creating spreadsheet for ${companyName}:`, error.message);
     throw error;
   }
 }
@@ -148,10 +171,7 @@ async function createDriveFolder(companyName, auth) {
     console.log(`Created Drive folder ID: ${folderId}`);
     return folderId;
   } catch (error) {
-    console.error(
-      `Error creating Drive folder for ${companyName}:`,
-      error.message
-    );
+    console.error(`Error creating Drive folder for ${companyName}:`, error.message);
     throw error;
   }
 }
@@ -160,10 +180,7 @@ async function createDriveFolder(companyName, auth) {
 async function getUserResources(email, companyName, auth) {
   let spreadsheetId, folderId;
 
-  const existingVoucher = await Voucher.findOne({
-    email,
-    company: companyName,
-  });
+  const existingVoucher = await Voucher.findOne({ email, company: companyName });
   if (existingVoucher) {
     spreadsheetId = existingVoucher.spreadsheetId;
     folderId = existingVoucher.folderId;
@@ -177,9 +194,7 @@ async function getUserResources(email, companyName, auth) {
     .select("voucherNo");
   const voucherNumber = highestVoucher ? highestVoucher.voucherNo + 1 : 1;
 
-  console.log(
-    `Generated voucherNo ${voucherNumber} for ${email} and ${companyName}`
-  );
+  console.log(`Generated voucherNo ${voucherNumber} for ${email} and ${companyName}`);
   return { spreadsheetId, folderId, voucherNumber };
 }
 
@@ -188,9 +203,7 @@ setInterval(() => {
   axios
     .get(`http://localhost:${PORT}/ping`)
     .then((response) => console.log("Pinged server to keep it warm."))
-    .catch((error) =>
-      console.error("Error pinging the server:", error.message)
-    );
+    .catch((error) => console.error("Error pinging the server:", error.message));
 }, 30000);
 
 app.get("/ping", (req, res) => {
@@ -199,38 +212,24 @@ app.get("/ping", (req, res) => {
 
 app.get("/get-voucher-no", async (req, res) => {
   const filter = req.query.filter;
-  if (
-    !filter ||
-    !["Contentstack", "Surfboard", "RawEngineering"].includes(filter)
-  ) {
+  if (!filter || !["Contentstack", "Surfboard", "RawEngineering"].includes(filter)) {
     return res.status(400).send({ error: "Invalid filter option" });
   }
 
   try {
-    const auth = authenticateGoogle(req);
-    const userInfo = await google
-      .oauth2({ version: "v2", auth })
-      .userinfo.get();
-    const email = userInfo.data.email;
-    const { voucherNumber } = await getUserResources(email, filter, auth);
+    const { email, auth } = await authenticateGoogle(req);
+    const { voucherNumber } = await getUserResources(email, filter, auth || null);
     res.send({ voucherNo: voucherNumber });
   } catch (error) {
     console.error("Error in get-voucher-no:", error.message);
-    res
-      .status(500)
-      .send({ error: "Failed to generate voucher number: " + error.message });
+    res.status(500).send({ error: "Failed to generate voucher number: " + error.message });
   }
 });
 
 // Get all vouchers for a user
 app.get("/vouchers", async (req, res) => {
   try {
-    const auth = authenticateGoogle(req);
-    const userInfo = await google
-      .oauth2({ version: "v2", auth })
-      .userinfo.get();
-    const email = userInfo.data.email;
-
+    const { email } = await authenticateGoogle(req);
     const { company, date, sort } = req.query;
     let query = { email };
     if (company) query.company = company;
@@ -245,9 +244,7 @@ app.get("/vouchers", async (req, res) => {
     res.status(200).send(vouchers);
   } catch (error) {
     console.error("Error retrieving vouchers:", error.message);
-    res
-      .status(500)
-      .send({ error: "Failed to retrieve vouchers: " + error.message });
+    res.status(500).send({ error: "Failed to retrieve vouchers: " + error.message });
   }
 });
 
@@ -258,18 +255,11 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     const voucherData = req.body;
     const filterOption = voucherData.filter;
 
-    if (
-      !["Contentstack", "Surfboard", "RawEngineering"].includes(filterOption)
-    ) {
+    if (!["Contentstack", "Surfboard", "RawEngineering"].includes(filterOption)) {
       return res.status(400).send({ error: "Invalid filter option" });
     }
 
-    const auth = authenticateGoogle(req);
-    const userInfo = await google
-      .oauth2({ version: "v2", auth })
-      .userinfo.get();
-    const email = userInfo.data.email;
-
+    const { email, auth } = await authenticateGoogle(req);
     const existingVoucher = await Voucher.findOne({ _id: voucherId, email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
@@ -291,17 +281,11 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     // Header section
     doc.fontSize(12).text("Date:", 400, 20);
     doc.fontSize(12).text(voucherData.date, 440, 20);
-    doc
-      .moveTo(440, underlineYPosition)
-      .lineTo(550, underlineYPosition)
-      .stroke();
+    doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
 
     doc.fontSize(12).text("Voucher No:", 400, 40);
     doc.fontSize(12).text(voucherNo, 470, 40);
-    doc
-      .moveTo(470, underlineYPosition + 20)
-      .lineTo(550, underlineYPosition + 20)
-      .stroke();
+    doc.moveTo(470, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
 
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
@@ -319,10 +303,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     // Main content with adjusted spacing
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(12).text(label, 30, yPosition);
-      doc
-        .moveTo(120, yPosition + 12)
-        .lineTo(550, yPosition + 12)
-        .stroke();
+      doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
       doc.fontSize(12).text(value || "", 130, yPosition);
     };
 
@@ -340,40 +321,20 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
       const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100;
       doc.fontSize(10).text(label, xPosition, yPosition - 15); // Label above the line
-      doc
-        .moveTo(xPosition, yPosition)
-        .lineTo(xPosition + lineWidth, yPosition)
-        .stroke();
+      doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
       doc.fontSize(12).text(value || "", xPosition, yPosition + 5); // Value below the line
     };
 
-    drawSignatureLine(
-      "Checked By",
-      voucherData.checkedBy,
-      50,
-      signatureSectionY
-    );
-    drawSignatureLine(
-      "Approved By",
-      voucherData.approvedBy,
-      50 + signatureSpacing,
-      signatureSectionY
-    );
-    drawSignatureLine(
-      "Receiver Signature",
-      voucherData.receiverSignature,
-      50 + signatureSpacing * 2,
-      signatureSectionY
-    );
+    drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
+    drawSignatureLine("Approved By", voucherData.approvedBy, 50 + signatureSpacing, signatureSectionY);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, 50 + signatureSpacing * 2, signatureSectionY);
 
     doc.end();
 
     pdfStream.on("finish", async () => {
       try {
-        const drive = google.drive({ version: "v3", auth });
-        console.log(
-          `Uploading updated PDF ${pdfFileName} to Drive folder ${folderId}`
-        );
+        const drive = google.drive({ version: "v3", auth: auth || authenticateGoogle(req).auth });
+        console.log(`Uploading updated PDF ${pdfFileName} to Drive folder ${folderId}`);
 
         if (existingVoucher.pdfFileId) {
           await drive.files.delete({ fileId: existingVoucher.pdfFileId });
@@ -381,10 +342,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
         }
 
         const pdfFileMetadata = { name: pdfFileName, parents: [folderId] };
-        const pdfMedia = {
-          mimeType: "application/pdf",
-          body: fs.createReadStream(pdfFilePath),
-        };
+        const pdfMedia = { mimeType: "application/pdf", body: fs.createReadStream(pdfFilePath) };
         const pdfUploadResponse = await drive.files.create({
           resource: pdfFileMetadata,
           media: pdfMedia,
@@ -395,7 +353,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
         const pdfLink = pdfUploadResponse.data.webViewLink;
         console.log(`PDF uploaded: ${pdfFileId}, Link: ${pdfLink}`);
 
-        const sheets = google.sheets({ version: "v4", auth });
+        const sheets = google.sheets({ version: "v4", auth: auth || authenticateGoogle(req).auth });
         const values = [
           [
             voucherNo,
@@ -462,9 +420,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
         });
       } catch (error) {
         console.error("Error updating voucher:", error.message);
-        res
-          .status(500)
-          .send({ error: "Failed to update voucher: " + error.message });
+        res.status(500).send({ error: "Failed to update voucher: " + error.message });
       }
     });
   } catch (error) {
@@ -477,13 +433,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 app.delete("/vouchers/:voucherNo", async (req, res) => {
   try {
     const voucherNo = Number(req.params.voucherNo);
-
-    const auth = authenticateGoogle(req);
-    const userInfo = await google
-      .oauth2({ version: "v2", auth })
-      .userinfo.get();
-    const email = userInfo.data.email;
-
+    const { email, auth } = await authenticateGoogle(req);
     const existingVoucher = await Voucher.findOne({ voucherNo, email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
@@ -492,13 +442,13 @@ app.delete("/vouchers/:voucherNo", async (req, res) => {
     const { spreadsheetId, folderId, pdfFileId } = existingVoucher;
     const sheetTitle = existingVoucher.company;
 
-    const drive = google.drive({ version: "v3", auth });
+    const drive = google.drive({ version: "v3", auth: auth || authenticateGoogle(req).auth });
     if (pdfFileId) {
       await drive.files.delete({ fileId: pdfFileId });
       console.log(`Deleted PDF: ${pdfFileId}`);
     }
 
-    const sheets = google.sheets({ version: "v4", auth });
+    const sheets = google.sheets({ version: "v4", auth: auth || authenticateGoogle(req).auth });
     const sheetData = await sheets.spreadsheets.values.get({
       spreadsheetId,
       range: `${sheetTitle}!A2:O`,
@@ -520,9 +470,7 @@ app.delete("/vouchers/:voucherNo", async (req, res) => {
     res.status(200).send({ message: "Voucher deleted successfully!" });
   } catch (error) {
     console.error("Error in /vouchers endpoint:", error.message);
-    res
-      .status(500)
-      .send({ error: "Failed to delete voucher: " + error.message });
+    res.status(500).send({ error: "Failed to delete voucher: " + error.message });
   }
 });
 
@@ -531,22 +479,12 @@ app.post("/submit", upload.none(), async (req, res) => {
     const voucherData = req.body;
     const filterOption = voucherData.filter;
 
-    if (
-      !["Contentstack", "Surfboard", "RawEngineering"].includes(filterOption)
-    ) {
+    if (!["Contentstack", "Surfboard", "RawEngineering"].includes(filterOption)) {
       return res.status(400).send({ error: "Invalid filter option" });
     }
 
-    const auth = authenticateGoogle(req);
-    const userInfo = await google
-      .oauth2({ version: "v2", auth })
-      .userinfo.get();
-    const email = userInfo.data.email;
-    const { spreadsheetId, folderId, voucherNumber } = await getUserResources(
-      email,
-      filterOption,
-      auth
-    );
+    const { email, auth } = await authenticateGoogle(req);
+    const { spreadsheetId, folderId, voucherNumber } = await getUserResources(email, filterOption, auth || null);
     const voucherNo = voucherData.voucherNo || voucherNumber;
     const sheetTitle = filterOption;
     const sheetURL = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
@@ -566,17 +504,11 @@ app.post("/submit", upload.none(), async (req, res) => {
     // Header section
     doc.fontSize(12).text("Date:", 400, 20);
     doc.fontSize(12).text(voucherData.date, 440, 20);
-    doc
-      .moveTo(440, underlineYPosition)
-      .lineTo(550, underlineYPosition)
-      .stroke();
+    doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
 
     doc.fontSize(12).text("Voucher No:", 400, 40);
     doc.fontSize(12).text(voucherNo, 470, 40);
-    doc
-      .moveTo(470, underlineYPosition + 20)
-      .lineTo(550, underlineYPosition + 20)
-      .stroke();
+    doc.moveTo(470, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
 
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
@@ -594,10 +526,7 @@ app.post("/submit", upload.none(), async (req, res) => {
     // Main content with adjusted spacing
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(12).text(label, 30, yPosition);
-      doc
-        .moveTo(120, yPosition + 12)
-        .lineTo(550, yPosition + 12)
-        .stroke();
+      doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
       doc.fontSize(12).text(value || "", 130, yPosition);
     };
 
@@ -615,43 +544,22 @@ app.post("/submit", upload.none(), async (req, res) => {
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
       const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100;
       doc.fontSize(10).text(label, xPosition, yPosition - 15); // Label above the line
-      doc
-        .moveTo(xPosition, yPosition)
-        .lineTo(xPosition + lineWidth, yPosition)
-        .stroke();
+      doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
       doc.fontSize(12).text(value || "", xPosition, yPosition + 5); // Value below the line
     };
 
-    drawSignatureLine(
-      "Checked By",
-      voucherData.checkedBy,
-      50,
-      signatureSectionY
-    );
-    drawSignatureLine(
-      "Approved By",
-      voucherData.approvedBy,
-      50 + signatureSpacing,
-      signatureSectionY
-    );
-    drawSignatureLine(
-      "Receiver Signature",
-      voucherData.receiverSignature,
-      50 + signatureSpacing * 2,
-      signatureSectionY
-    );
+    drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
+    drawSignatureLine("Approved By", voucherData.approvedBy, 50 + signatureSpacing, signatureSectionY);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, 50 + signatureSpacing * 2, signatureSectionY);
 
     doc.end();
 
     pdfStream.on("finish", async () => {
       try {
-        const drive = google.drive({ version: "v3", auth });
+        const drive = google.drive({ version: "v3", auth: auth || authenticateGoogle(req).auth });
         console.log(`Uploading PDF ${pdfFileName} to Drive folder ${folderId}`);
         const pdfFileMetadata = { name: pdfFileName, parents: [folderId] };
-        const pdfMedia = {
-          mimeType: "application/pdf",
-          body: fs.createReadStream(pdfFilePath),
-        };
+        const pdfMedia = { mimeType: "application/pdf", body: fs.createReadStream(pdfFilePath) };
         const pdfUploadResponse = await drive.files.create({
           resource: pdfFileMetadata,
           media: pdfMedia,
@@ -662,7 +570,7 @@ app.post("/submit", upload.none(), async (req, res) => {
         const pdfLink = pdfUploadResponse.data.webViewLink;
         console.log(`PDF uploaded: ${pdfFileId}, Link: ${pdfLink}`);
 
-        const sheets = google.sheets({ version: "v4", auth });
+        const sheets = google.sheets({ version: "v4", auth: auth || authenticateGoogle(req).auth });
         const values = [
           [
             voucherNo,
@@ -720,15 +628,8 @@ app.post("/submit", upload.none(), async (req, res) => {
           pdfFileId,
         });
       } catch (error) {
-        console.error(
-          "Error uploading PDF or appending to sheet:",
-          error.message
-        );
-        res
-          .status(500)
-          .send({
-            error: "Failed to upload PDF or append to sheet: " + error.message,
-          });
+        console.error("Error uploading PDF or appending to sheet:", error.message);
+        res.status(500).send({ error: "Failed to upload PDF or append to sheet: " + error.message });
       }
     });
 
@@ -740,6 +641,18 @@ app.post("/submit", upload.none(), async (req, res) => {
     console.error("Error in /submit endpoint:", error.message);
     res.status(500).send({ error: "Failed to submit data: " + error.message });
   }
+});
+
+// Logout endpoint to clear session
+app.post("/logout", (req, res) => {
+  req.session.destroy((err) => {
+    if (err) {
+      console.error("Error destroying session:", err);
+      return res.status(500).send({ error: "Failed to log out" });
+    }
+    res.clearCookie("connect.sid"); // Clear the session cookie
+    res.status(200).send({ message: "Logged out successfully" });
+  });
 });
 
 app.listen(PORT, () => {
