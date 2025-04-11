@@ -102,8 +102,8 @@ const Voucher = mongoose.model("Voucher", voucherSchema);
 
 // Middleware to authenticate Google token or use session
 const authenticateGoogle = async (req) => {
-  if (req.session.email) {
-    return { email: req.session.email };
+  if (req.session.user) {
+    return { user: req.session.user }; // Return full user object from session
   }
 
   if (!req.headers.authorization) throw new Error("No authorization token provided");
@@ -111,10 +111,14 @@ const authenticateGoogle = async (req) => {
   const auth = new google.auth.OAuth2();
   auth.setCredentials({ access_token: token });
   const userInfo = await google.oauth2({ version: "v2", auth }).userinfo.get();
-  const email = userInfo.data.email;
+  const user = {
+    email: userInfo.data.email,
+    name: userInfo.data.name,
+    picture: userInfo.data.picture,
+  };
 
-  req.session.email = email;
-  return { email, auth };
+  req.session.user = user; // Store full user object in session
+  return { user, auth };
 };
 
 // Function to create a new spreadsheet
@@ -208,11 +212,16 @@ app.get("/ping", (req, res) => {
   res.status(200).send({ message: "Server is active" });
 });
 
-// Check session endpoint
+// Check session endpoint with full user info
 app.get("/check-session", async (req, res) => {
   try {
-    const { email } = await authenticateGoogle(req);
-    res.status(200).send({ email, message: "Session is active" });
+    const { user } = await authenticateGoogle(req);
+    res.status(200).send({
+      email: user.email,
+      name: user.name,
+      picture: user.picture,
+      message: "Session is active",
+    });
   } catch (error) {
     console.error("Session check failed:", error.message);
     res.status(401).send({ error: "No active session" });
@@ -226,8 +235,8 @@ app.get("/get-voucher-no", async (req, res) => {
   }
 
   try {
-    const { email, auth } = await authenticateGoogle(req);
-    const { voucherNumber } = await getUserResources(email, filter, auth || null);
+    const { user, auth } = await authenticateGoogle(req);
+    const { voucherNumber } = await getUserResources(user.email, filter, auth || null);
     res.send({ voucherNo: voucherNumber });
   } catch (error) {
     console.error("Error in get-voucher-no:", error.message);
@@ -238,9 +247,9 @@ app.get("/get-voucher-no", async (req, res) => {
 // Get all vouchers for a user
 app.get("/vouchers", async (req, res) => {
   try {
-    const { email } = await authenticateGoogle(req);
+    const { user } = await authenticateGoogle(req);
     const { company, date, sort } = req.query;
-    let query = { email };
+    let query = { email: user.email };
     if (company) query.company = company;
     if (date) query.date = date;
 
@@ -268,8 +277,8 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
       return res.status(400).send({ error: "Invalid filter option" });
     }
 
-    const { email, auth } = await authenticateGoogle(req);
-    const existingVoucher = await Voucher.findOne({ _id: voucherId, email });
+    const { user, auth } = await authenticateGoogle(req);
+    const existingVoucher = await Voucher.findOne({ _id: voucherId, email: user.email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
     }
@@ -399,7 +408,7 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
         console.log(`Data updated in sheet ${spreadsheetId}`);
 
         await Voucher.updateOne(
-          { _id: voucherId, email },
+          { _id: voucherId, email: user.email },
           {
             date: voucherData.date,
             payTo: voucherData.payTo,
@@ -439,8 +448,8 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 app.delete("/vouchers/:voucherNo", async (req, res) => {
   try {
     const voucherNo = Number(req.params.voucherNo);
-    const { email, auth } = await authenticateGoogle(req);
-    const existingVoucher = await Voucher.findOne({ voucherNo, email });
+    const { user, auth } = await authenticateGoogle(req);
+    const existingVoucher = await Voucher.findOne({ voucherNo, email: user.email });
     if (!existingVoucher) {
       return res.status(404).send({ error: "Voucher not found" });
     }
@@ -470,7 +479,7 @@ app.delete("/vouchers/:voucherNo", async (req, res) => {
       console.log(`Deleted row from sheet ${spreadsheetId} at ${rowRange}`);
     }
 
-    await Voucher.deleteOne({ voucherNo, email });
+    await Voucher.deleteOne({ voucherNo, email: user.email });
     console.log(`Deleted voucher from MongoDB: ${voucherNo}`);
 
     res.status(200).send({ message: "Voucher deleted successfully!" });
@@ -489,8 +498,8 @@ app.post("/submit", upload.none(), async (req, res) => {
       return res.status(400).send({ error: "Invalid filter option" });
     }
 
-    const { email, auth } = await authenticateGoogle(req);
-    const { spreadsheetId, folderId, voucherNumber } = await getUserResources(email, filterOption, auth || null);
+    const { user, auth } = await authenticateGoogle(req);
+    const { spreadsheetId, folderId, voucherNumber } = await getUserResources(user.email, filterOption, auth || null);
     const voucherNo = voucherData.voucherNo || voucherNumber;
     const sheetTitle = filterOption;
     const sheetURL = `https://docs.google.com/spreadsheets/d/${spreadsheetId}/edit`;
@@ -602,7 +611,7 @@ app.post("/submit", upload.none(), async (req, res) => {
         console.log(`Data appended to ${spreadsheetId}`);
 
         const voucher = new Voucher({
-          email,
+          email: user.email,
           company: filterOption,
           voucherNo,
           date: voucherData.date,
