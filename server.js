@@ -296,14 +296,14 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     const underlineYPosition = 25;
 
-    // Top section: Date and Voucher No. (adjusted to avoid conflict)
+    // Top section: Date and Voucher No. (fixed overlap)
     doc.fontSize(10).text("Date:", 280, 15);
-    doc.fontSize(10).text(voucherData.date, 310, 15);
-    doc.moveTo(310, underlineYPosition).lineTo(380, underlineYPosition).stroke();
+    doc.fontSize(10).text(voucherData.date, 320, 15); // Increased x-offset
+    doc.moveTo(320, underlineYPosition).lineTo(380, underlineYPosition).stroke();
 
-    doc.fontSize(10).text("Voucher No:", 280, 35); // Moved down to avoid logo/date overlap
-    doc.fontSize(10).text(voucherNo, 330, 35);
-    doc.moveTo(330, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
+    doc.fontSize(10).text("Voucher No:", 280, 35);
+    doc.fontSize(10).text(voucherNo, 340, 35); // Increased x-offset
+    doc.moveTo(340, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
 
     // Logo
     const filterLogoMap = {
@@ -319,19 +319,19 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     doc.moveDown(2);
 
-    // Form fields
+    // Form fields (consistent 30-point spacing)
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(10).text(label, 20, yPosition);
-      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke(); // Shortened line
-      doc.fontSize(10).text(value || "", 90, yPosition);
+      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke();
+      doc.fontSize(10).text(value || "", 100, yPosition); // Increased x-offset
     };
 
     drawLineAndText("Pay to:", voucherData.payTo, 80);
     drawLineAndText("Account Head:", voucherData.accountHead, 110);
     drawLineAndText("Towards:", voucherData.account, 140);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 180); // Moved down
-    drawLineAndText("Amount Rs.", voucherData.amount, 210);
-    drawLineAndText("The Sum.", voucherData.amountRs, 240);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 170); // Aligned spacing
+    drawLineAndText("Amount Rs.", voucherData.amount, 200);
+    drawLineAndText("The Sum.", voucherData.amountRs, 230);
 
     // Centered signatures
     const signatureSectionY = 300;
@@ -523,14 +523,14 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     const underlineYPosition = 25;
 
-    // Top section: Date and Voucher No. (adjusted to avoid conflict)
+    // Top section: Date and Voucher No. (fixed overlap)
     doc.fontSize(10).text("Date:", 280, 15);
-    doc.fontSize(10).text(voucherData.date, 310, 15);
-    doc.moveTo(310, underlineYPosition).lineTo(380, underlineYPosition).stroke();
+    doc.fontSize(10).text(voucherData.date, 320, 15); // Increased x-offset
+    doc.moveTo(320, underlineYPosition).lineTo(380, underlineYPosition).stroke();
 
-    doc.fontSize(10).text("Voucher No:", 280, 35); // Moved down to avoid logo/date overlap
-    doc.fontSize(10).text(voucherNo, 330, 35);
-    doc.moveTo(330, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
+    doc.fontSize(10).text("Voucher No:", 280, 35);
+    doc.fontSize(10).text(voucherNo, 340, 35); // Increased x-offset
+    doc.moveTo(340, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
 
     // Logo
     const filterLogoMap = {
@@ -546,19 +546,19 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     doc.moveDown(2);
 
-    // Form fields
+    // Form fields (consistent 30-point spacing)
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(10).text(label, 20, yPosition);
-      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke(); // Shortened line
-      doc.fontSize(10).text(value || "", 90, yPosition);
+      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke();
+      doc.fontSize(10).text(value || "", 100, yPosition); // Increased x-offset
     };
 
     drawLineAndText("Pay to:", voucherData.payTo, 80);
     drawLineAndText("Account Head:", voucherData.accountHead, 110);
     drawLineAndText("Towards:", voucherData.account, 140);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 180); // Moved down
-    drawLineAndText("Amount Rs.", voucherData.amount, 210);
-    drawLineAndText("The Sum.", voucherData.amountRs, 240);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 170); // Aligned spacing
+    drawLineAndText("Amount Rs.", voucherData.amount, 200);
+    drawLineAndText("The Sum.", voucherData.amountRs, 230);
 
     // Centered signatures
     const signatureSectionY = 300;
