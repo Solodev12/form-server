@@ -300,8 +300,8 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      const logoWidth = voucherData.filter === "Contentstack" ? 150 : 10;
-      doc.image(filterLogo, 30, 30, { width: logoWidth });
+      const logoWidth = voucherData.filter === "Contentstack" ? 100 : 70;
+      doc.image(filterLogo, 20, 20, { width: logoWidth });
     }
 
     doc.moveDown(2);
