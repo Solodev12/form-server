@@ -28,7 +28,6 @@ app.use(bodyParser.json());
 app.use(express.static(path.join(__dirname, "public")));
 app.use(cookieParser());
 
-// Session configuration
 app.use(
   session({
     secret: process.env.SESSION_SECRET || "your-secret-key",
@@ -61,7 +60,6 @@ const headerValues = [
   "PDF Link",
 ];
 
-// MongoDB Connection
 const mongoUsername = process.env.MONGO_USERNAME || "defaultUsername";
 const mongoPassword = process.env.MONGO_PASSWORD || "defaultPassword";
 const mongoURI =
@@ -73,7 +71,6 @@ mongoose
   .then(() => console.log("Connected to MongoDB with authentication"))
   .catch((err) => console.error("MongoDB connection error:", err));
 
-// Voucher Schema
 const voucherSchema = new mongoose.Schema({
   email: { type: String, required: true },
   company: { type: String, required: true },
@@ -100,7 +97,6 @@ const voucherSchema = new mongoose.Schema({
 
 const Voucher = mongoose.model("Voucher", voucherSchema);
 
-// Middleware to authenticate Google token or use session
 const authenticateGoogle = async (req) => {
   if (req.session.user) {
     return { user: req.session.user };
@@ -121,7 +117,6 @@ const authenticateGoogle = async (req) => {
   return { user, auth };
 };
 
-// Function to create a new spreadsheet
 async function createSpreadsheet(companyName, auth) {
   const sheets = google.sheets({ version: "v4", auth });
   try {
@@ -157,7 +152,6 @@ async function createSpreadsheet(companyName, auth) {
   }
 }
 
-// Function to create a new Drive folder
 async function createDriveFolder(companyName, auth) {
   const drive = google.drive({ version: "v3", auth });
   try {
@@ -178,7 +172,6 @@ async function createDriveFolder(companyName, auth) {
   }
 }
 
-// Get or create resources per user and generate unique voucher number per company
 async function getUserResources(email, companyName, auth) {
   let spreadsheetId, folderId;
 
@@ -200,7 +193,6 @@ async function getUserResources(email, companyName, auth) {
   return { spreadsheetId, folderId, voucherNumber };
 }
 
-// Keep server alive
 setInterval(() => {
   axios
     .get(`http://localhost:${PORT}/ping`)
@@ -212,7 +204,6 @@ app.get("/ping", (req, res) => {
   res.status(200).send({ message: "Server is active" });
 });
 
-// Check session endpoint
 app.get("/check-session", async (req, res) => {
   try {
     const { user } = await authenticateGoogle(req);
@@ -244,7 +235,6 @@ app.get("/get-voucher-no", async (req, res) => {
   }
 });
 
-// Get all vouchers for a user
 app.get("/vouchers", async (req, res) => {
   try {
     const { user } = await authenticateGoogle(req);
@@ -266,7 +256,6 @@ app.get("/vouchers", async (req, res) => {
   }
 });
 
-// Edit voucher endpoint
 app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
   try {
     const voucherId = req.params.id;
@@ -290,22 +279,20 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     const pdfFileName = `${filterOption}_${voucherNo}.pdf`;
     const pdfFilePath = path.join(__dirname, pdfFileName);
-    const doc = new PDFDocument({ size: "A5", margin: 20 }); // A5 size
+    const doc = new PDFDocument({ size: "A5", margin: 20 });
     const pdfStream = fs.createWriteStream(pdfFilePath);
     doc.pipe(pdfStream);
 
     const underlineYPosition = 25;
 
-    // Top section: Date and Voucher No. (fixed overlap)
     doc.fontSize(10).text("Date:", 280, 15);
-    doc.fontSize(10).text(voucherData.date, 320, 15); // Increased x-offset
+    doc.fontSize(10).text(voucherData.date, 320, 15);
     doc.moveTo(320, underlineYPosition).lineTo(380, underlineYPosition).stroke();
 
     doc.fontSize(10).text("Voucher No:", 280, 35);
-    doc.fontSize(10).text(voucherNo, 340, 35); // Increased x-offset
+    doc.fontSize(10).text(voucherNo, 340, 35);
     doc.moveTo(340, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
 
-    // Logo
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
       Surfboard: path.join(__dirname, "public", "surfboard.png"),
@@ -319,26 +306,28 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     doc.moveDown(2);
 
-    // Form fields (consistent 30-point spacing)
+    // Form fields with shortened underlines starting at value
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(10).text(label, 20, yPosition);
-      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke();
-      doc.fontSize(10).text(value || "", 100, yPosition); // Increased x-offset
+      doc.fontSize(10).text(value || "", 100, yPosition);
+      if (value) {
+        const valueWidth = doc.widthOfString(value);
+        doc.moveTo(100, yPosition + 10).lineTo(100 + valueWidth, yPosition + 10).stroke();
+      }
     };
 
     drawLineAndText("Pay to:", voucherData.payTo, 80);
     drawLineAndText("Account Head:", voucherData.accountHead, 110);
     drawLineAndText("Towards:", voucherData.account, 140);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 170); // Aligned spacing
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 170);
     drawLineAndText("Amount Rs.", voucherData.amount, 200);
     drawLineAndText("The Sum.", voucherData.amountRs, 230);
 
-    // Centered signatures
     const signatureSectionY = 300;
-    const pageWidth = 420; // A5 width in points
-    const signatureWidth = 80; // Fixed width for each signature
-    const totalSignatureWidth = signatureWidth * 3 + 20 * 2; // 3 signatures + 2 gaps
-    const startX = (pageWidth - totalSignatureWidth) / 2; // Center start point
+    const pageWidth = 420;
+    const signatureWidth = 80;
+    const totalSignatureWidth = signatureWidth * 3 + 20 * 2;
+    const startX = (pageWidth - totalSignatureWidth) / 2;
 
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
       const lineWidth = value ? Math.max(doc.widthOfString(value), signatureWidth) : signatureWidth;
@@ -451,7 +440,6 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
   }
 });
 
-// Delete voucher endpoint
 app.delete("/vouchers/:voucherNo", async (req, res) => {
   try {
     const voucherNo = Number(req.params.voucherNo);
@@ -517,22 +505,20 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     const pdfFileName = `${filterOption}_${voucherNo}.pdf`;
     const pdfFilePath = path.join(__dirname, pdfFileName);
-    const doc = new PDFDocument({ size: "A5", margin: 20 }); // A5 size
+    const doc = new PDFDocument({ size: "A5", margin: 20 });
     const pdfStream = fs.createWriteStream(pdfFilePath);
     doc.pipe(pdfStream);
 
     const underlineYPosition = 25;
 
-    // Top section: Date and Voucher No. (fixed overlap)
     doc.fontSize(10).text("Date:", 280, 15);
-    doc.fontSize(10).text(voucherData.date, 320, 15); // Increased x-offset
+    doc.fontSize(10).text(voucherData.date, 320, 15);
     doc.moveTo(320, underlineYPosition).lineTo(380, underlineYPosition).stroke();
 
     doc.fontSize(10).text("Voucher No:", 280, 35);
-    doc.fontSize(10).text(voucherNo, 340, 35); // Increased x-offset
+    doc.fontSize(10).text(voucherNo, 340, 35);
     doc.moveTo(340, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
 
-    // Logo
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
       Surfboard: path.join(__dirname, "public", "surfboard.png"),
@@ -546,26 +532,28 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     doc.moveDown(2);
 
-    // Form fields (consistent 30-point spacing)
+    // Form fields with shortened underlines starting at value
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(10).text(label, 20, yPosition);
-      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke();
-      doc.fontSize(10).text(value || "", 100, yPosition); // Increased x-offset
+      doc.fontSize(10).text(value || "", 100, yPosition);
+      if (value) {
+        const valueWidth = doc.widthOfString(value);
+        doc.moveTo(100, yPosition + 10).lineTo(100 + valueWidth, yPosition + 10).stroke();
+      }
     };
 
     drawLineAndText("Pay to:", voucherData.payTo, 80);
     drawLineAndText("Account Head:", voucherData.accountHead, 110);
     drawLineAndText("Towards:", voucherData.account, 140);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 170); // Aligned spacing
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 170);
     drawLineAndText("Amount Rs.", voucherData.amount, 200);
     drawLineAndText("The Sum.", voucherData.amountRs, 230);
 
-    // Centered signatures
     const signatureSectionY = 300;
-    const pageWidth = 420; // A5 width in points
-    const signatureWidth = 80; // Fixed width for each signature
-    const totalSignatureWidth = signatureWidth * 3 + 20 * 2; // 3 signatures + 2 gaps
-    const startX = (pageWidth - totalSignatureWidth) / 2; // Center start point
+    const pageWidth = 420;
+    const signatureWidth = 80;
+    const totalSignatureWidth = signatureWidth * 3 + 20 * 2;
+    const startX = (pageWidth - totalSignatureWidth) / 2;
 
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
       const lineWidth = value ? Math.max(doc.widthOfString(value), signatureWidth) : signatureWidth;
@@ -669,7 +657,6 @@ app.post("/submit", upload.none(), async (req, res) => {
   }
 });
 
-// Logout endpoint to clear session
 app.post("/logout", (req, res) => {
   req.session.destroy((err) => {
     if (err) {
