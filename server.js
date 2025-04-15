@@ -103,7 +103,7 @@ const Voucher = mongoose.model("Voucher", voucherSchema);
 // Middleware to authenticate Google token or use session
 const authenticateGoogle = async (req) => {
   if (req.session.user) {
-    return { user: req.session.user }; // Return full user object from session
+    return { user: req.session.user };
   }
 
   if (!req.headers.authorization) throw new Error("No authorization token provided");
@@ -117,7 +117,7 @@ const authenticateGoogle = async (req) => {
     picture: userInfo.data.picture,
   };
 
-  req.session.user = user; // Store full user object in session
+  req.session.user = user;
   return { user, auth };
 };
 
@@ -212,7 +212,7 @@ app.get("/ping", (req, res) => {
   res.status(200).send({ message: "Server is active" });
 });
 
-// Check session endpoint with full user info
+// Check session endpoint
 app.get("/check-session", async (req, res) => {
   try {
     const { user } = await authenticateGoogle(req);
@@ -290,20 +290,22 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     const pdfFileName = `${filterOption}_${voucherNo}.pdf`;
     const pdfFilePath = path.join(__dirname, pdfFileName);
-    const doc = new PDFDocument({ margin: 30 });
+    const doc = new PDFDocument({ size: "A5", margin: 20 }); // A5 size
     const pdfStream = fs.createWriteStream(pdfFilePath);
     doc.pipe(pdfStream);
 
-    const underlineYPosition = 35;
+    const underlineYPosition = 25;
 
-    doc.fontSize(12).text("Date:", 400, 20);
-    doc.fontSize(12).text(voucherData.date, 440, 20);
-    doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
+    // Top section: Date and Voucher No. (adjusted to avoid conflict)
+    doc.fontSize(10).text("Date:", 280, 15);
+    doc.fontSize(10).text(voucherData.date, 310, 15);
+    doc.moveTo(310, underlineYPosition).lineTo(380, underlineYPosition).stroke();
 
-    doc.fontSize(12).text("Voucher No:", 400, 40);
-    doc.fontSize(12).text(voucherNo, 470, 40);
-    doc.moveTo(470, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
+    doc.fontSize(10).text("Voucher No:", 280, 35); // Moved down to avoid logo/date overlap
+    doc.fontSize(10).text(voucherNo, 330, 35);
+    doc.moveTo(330, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
 
+    // Logo
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
       Surfboard: path.join(__dirname, "public", "surfboard.png"),
@@ -311,38 +313,43 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
-      doc.image(filterLogo, 30, 30, { width: logoWidth });
+      const logoWidth = voucherData.filter === "Contentstack" ? 100 : 70;
+      doc.image(filterLogo, 20, 20, { width: logoWidth });
     }
 
-    doc.moveDown(3);
+    doc.moveDown(2);
 
+    // Form fields
     const drawLineAndText = (label, value, yPosition) => {
-      doc.fontSize(12).text(label, 30, yPosition);
-      doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
-      doc.fontSize(12).text(value || "", 130, yPosition);
+      doc.fontSize(10).text(label, 20, yPosition);
+      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke(); // Shortened line
+      doc.fontSize(10).text(value || "", 90, yPosition);
     };
 
-    drawLineAndText("Pay to:", voucherData.payTo, 120);
-    drawLineAndText("Account Head:", voucherData.accountHead, 160);
-    drawLineAndText("Towards:", voucherData.account, 200);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 240);
-    drawLineAndText("Amount Rs.", voucherData.amount, 280);
-    drawLineAndText("The Sum.", voucherData.amountRs, 320);
+    drawLineAndText("Pay to:", voucherData.payTo, 80);
+    drawLineAndText("Account Head:", voucherData.accountHead, 110);
+    drawLineAndText("Towards:", voucherData.account, 140);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 180); // Moved down
+    drawLineAndText("Amount Rs.", voucherData.amount, 210);
+    drawLineAndText("The Sum.", voucherData.amountRs, 240);
 
-    const signatureSectionY = 400;
-    const signatureSpacing = 150;
+    // Centered signatures
+    const signatureSectionY = 300;
+    const pageWidth = 420; // A5 width in points
+    const signatureWidth = 80; // Fixed width for each signature
+    const totalSignatureWidth = signatureWidth * 3 + 20 * 2; // 3 signatures + 2 gaps
+    const startX = (pageWidth - totalSignatureWidth) / 2; // Center start point
 
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
-      const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100;
-      doc.fontSize(10).text(label, xPosition, yPosition - 15);
+      const lineWidth = value ? Math.max(doc.widthOfString(value), signatureWidth) : signatureWidth;
+      doc.fontSize(8).text(label, xPosition, yPosition - 10, { align: "center", width: lineWidth });
       doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
-      doc.fontSize(12).text(value || "", xPosition, yPosition + 5);
+      doc.fontSize(10).text(value || "", xPosition, yPosition + 5, { align: "center", width: lineWidth });
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy, 50 + signatureSpacing, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, 50 + signatureSpacing * 2, signatureSectionY);
+    drawSignatureLine("Checked By", voucherData.checkedBy, startX, signatureSectionY);
+    drawSignatureLine("Approved By", voucherData.approvedBy, startX + signatureWidth + 20, signatureSectionY);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, startX + (signatureWidth + 20) * 2, signatureSectionY);
 
     doc.end();
 
@@ -510,20 +517,22 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     const pdfFileName = `${filterOption}_${voucherNo}.pdf`;
     const pdfFilePath = path.join(__dirname, pdfFileName);
-    const doc = new PDFDocument({ margin: 30 });
+    const doc = new PDFDocument({ size: "A5", margin: 20 }); // A5 size
     const pdfStream = fs.createWriteStream(pdfFilePath);
     doc.pipe(pdfStream);
 
-    const underlineYPosition = 35;
+    const underlineYPosition = 25;
 
-    doc.fontSize(12).text("Date:", 400, 20);
-    doc.fontSize(12).text(voucherData.date, 440, 20);
-    doc.moveTo(440, underlineYPosition).lineTo(550, underlineYPosition).stroke();
+    // Top section: Date and Voucher No. (adjusted to avoid conflict)
+    doc.fontSize(10).text("Date:", 280, 15);
+    doc.fontSize(10).text(voucherData.date, 310, 15);
+    doc.moveTo(310, underlineYPosition).lineTo(380, underlineYPosition).stroke();
 
-    doc.fontSize(12).text("Voucher No:", 400, 40);
-    doc.fontSize(12).text(voucherNo, 470, 40);
-    doc.moveTo(470, underlineYPosition + 20).lineTo(550, underlineYPosition + 20).stroke();
+    doc.fontSize(10).text("Voucher No:", 280, 35); // Moved down to avoid logo/date overlap
+    doc.fontSize(10).text(voucherNo, 330, 35);
+    doc.moveTo(330, underlineYPosition + 20).lineTo(380, underlineYPosition + 20).stroke();
 
+    // Logo
     const filterLogoMap = {
       Contentstack: path.join(__dirname, "public", "contentstack.png"),
       Surfboard: path.join(__dirname, "public", "surfboard.png"),
@@ -531,38 +540,43 @@ app.post("/submit", upload.none(), async (req, res) => {
     };
     const filterLogo = filterLogoMap[voucherData.filter];
     if (fs.existsSync(filterLogo)) {
-      const logoWidth = voucherData.filter === "Contentstack" ? 150 : 100;
-      doc.image(filterLogo, 30, 30, { width: logoWidth });
+      const logoWidth = voucherData.filter === "Contentstack" ? 100 : 70;
+      doc.image(filterLogo, 20, 20, { width: logoWidth });
     }
 
-    doc.moveDown(3);
+    doc.moveDown(2);
 
+    // Form fields
     const drawLineAndText = (label, value, yPosition) => {
-      doc.fontSize(12).text(label, 30, yPosition);
-      doc.moveTo(120, yPosition + 12).lineTo(550, yPosition + 12).stroke();
-      doc.fontSize(12).text(value || "", 130, yPosition);
+      doc.fontSize(10).text(label, 20, yPosition);
+      doc.moveTo(80, yPosition + 10).lineTo(380, yPosition + 10).stroke(); // Shortened line
+      doc.fontSize(10).text(value || "", 90, yPosition);
     };
 
-    drawLineAndText("Pay to:", voucherData.payTo, 120);
-    drawLineAndText("Account Head:", voucherData.accountHead, 160);
-    drawLineAndText("Towards:", voucherData.account, 200);
-    drawLineAndText("Transaction Type:", voucherData.transactionType, 240);
-    drawLineAndText("Amount Rs.", voucherData.amount, 280);
-    drawLineAndText("The Sum.", voucherData.amountRs, 320);
+    drawLineAndText("Pay to:", voucherData.payTo, 80);
+    drawLineAndText("Account Head:", voucherData.accountHead, 110);
+    drawLineAndText("Towards:", voucherData.account, 140);
+    drawLineAndText("Transaction Type:", voucherData.transactionType, 180); // Moved down
+    drawLineAndText("Amount Rs.", voucherData.amount, 210);
+    drawLineAndText("The Sum.", voucherData.amountRs, 240);
 
-    const signatureSectionY = 400;
-    const signatureSpacing = 150;
+    // Centered signatures
+    const signatureSectionY = 300;
+    const pageWidth = 420; // A5 width in points
+    const signatureWidth = 80; // Fixed width for each signature
+    const totalSignatureWidth = signatureWidth * 3 + 20 * 2; // 3 signatures + 2 gaps
+    const startX = (pageWidth - totalSignatureWidth) / 2; // Center start point
 
     const drawSignatureLine = (label, value, xPosition, yPosition) => {
-      const lineWidth = value ? Math.max(doc.widthOfString(value), 100) : 100;
-      doc.fontSize(10).text(label, xPosition, yPosition - 15);
+      const lineWidth = value ? Math.max(doc.widthOfString(value), signatureWidth) : signatureWidth;
+      doc.fontSize(8).text(label, xPosition, yPosition - 10, { align: "center", width: lineWidth });
       doc.moveTo(xPosition, yPosition).lineTo(xPosition + lineWidth, yPosition).stroke();
-      doc.fontSize(12).text(value || "", xPosition, yPosition + 5);
+      doc.fontSize(10).text(value || "", xPosition, yPosition + 5, { align: "center", width: lineWidth });
     };
 
-    drawSignatureLine("Checked By", voucherData.checkedBy, 50, signatureSectionY);
-    drawSignatureLine("Approved By", voucherData.approvedBy, 50 + signatureSpacing, signatureSectionY);
-    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, 50 + signatureSpacing * 2, signatureSectionY);
+    drawSignatureLine("Checked By", voucherData.checkedBy, startX, signatureSectionY);
+    drawSignatureLine("Approved By", voucherData.approvedBy, startX + signatureWidth + 20, signatureSectionY);
+    drawSignatureLine("Receiver Signature", voucherData.receiverSignature, startX + (signatureWidth + 20) * 2, signatureSectionY);
 
     doc.end();
 
