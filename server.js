@@ -306,14 +306,11 @@ app.put("/edit-voucher/:id", upload.none(), async (req, res) => {
 
     doc.moveDown(2);
 
-    // Form fields with shortened underlines starting at value
+    // Form fields with underlines starting at value and ending at x=380
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(10).text(label, 20, yPosition);
       doc.fontSize(10).text(value || "", 100, yPosition);
-      if (value) {
-        const valueWidth = doc.widthOfString(value);
-        doc.moveTo(100, yPosition + 10).lineTo(100 + valueWidth, yPosition + 10).stroke();
-      }
+      doc.moveTo(100, yPosition + 10).lineTo(380, yPosition + 10).stroke();
     };
 
     drawLineAndText("Pay to:", voucherData.payTo, 80);
@@ -532,14 +529,11 @@ app.post("/submit", upload.none(), async (req, res) => {
 
     doc.moveDown(2);
 
-    // Form fields with shortened underlines starting at value
+    // Form fields with underlines starting at value and ending at x=380
     const drawLineAndText = (label, value, yPosition) => {
       doc.fontSize(10).text(label, 20, yPosition);
       doc.fontSize(10).text(value || "", 100, yPosition);
-      if (value) {
-        const valueWidth = doc.widthOfString(value);
-        doc.moveTo(100, yPosition + 10).lineTo(100 + valueWidth, yPosition + 10).stroke();
-      }
+      doc.moveTo(100, yPosition + 10).lineTo(380, yPosition + 10).stroke();
     };
 
     drawLineAndText("Pay to:", voucherData.payTo, 80);
